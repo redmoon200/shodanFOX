@@ -52,6 +52,8 @@ Single query mode (-q)
 
 Query file support (-qf)
 
+wildcard search    (-w)
+
 Domain targeting (-d)
 
 Multiple domain input (-f)
