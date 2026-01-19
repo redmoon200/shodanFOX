@@ -10,7 +10,7 @@ from colorama import Fore, Style, init
 init(autoreset=True)
 
 # ================= CONFIG =================
-API_KEY = "add your API_KEY"
+API_KEY = ""   # <-- PUT YOUR SHODAN API KEY HERE
 DEFAULT_QUERY = "http.favicon.hash:116323821"
 # ==========================================
 
@@ -29,7 +29,7 @@ def banner():
  ███████║██║  ██║╚██████╔╝██████╔╝██║  ██║██║ ╚████║██║     ╚██████╔╝██╔╝ ██╗
  ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝      ╚═════╝ ╚═╝  ╚═╝
 
-        shodanFOX – Recon Automation Toolkit By REDMOON
+        shodanFOX – Recon Automation Toolkit
 """ + Style.RESET_ALL)
 
 def print_help():
@@ -38,27 +38,22 @@ USAGE:
   shodanfox [OPTIONS]
 
 TARGET OPTIONS:
-  -q,  --query <query>          Single Shodan query
-  -qf, --query-file <file>      File with queries
-  -d,  --hostname <domain>      Single domain
-  -f,  --file <file>            File with domains
-  -m,  --multi-hash <file>      File with favicon hashes (one per line)
+  -q,  --query <query>
+  -qf, --query-file <file>
+  -d,  --hostname <domain>
+  -f,  --file <file>
+  -m,  --multi-hash <file>
 
 OUTPUT OPTIONS:
-  -o,  --output <file>          Output file (default: results.txt)
-  -j,  --json                   JSON output
+  -o,  --output <file>          Save results to file (optional)
+  -j,  --json                   JSON output (print / save)
 
 PERFORMANCE:
-  -c,  --concurrent <num>       Threads (default: 1)
-  -r,  --retries <num>          Retry API errors (default: 3)
+  -c,  --concurrent <num>
+  -r,  --retries <num>
 
 OTHER:
-  -h,  --help                   Show this help menu
-
-EXAMPLES:
-  shodanfox -q "http.favicon.hash:12345"
-  shodanfox -m hashes.txt -d example.com
-  shodanfox -qf queries.txt -f domains.txt
+  -h,  --help
 """)
 
 def shodan_search(api, query, retries):
@@ -70,40 +65,31 @@ def shodan_search(api, query, retries):
     return []
 
 def build_queries(args):
-    queries = []
-
-    # Multi-hash mode
     if args.multi_hash:
         with open(args.multi_hash) as f:
-            hashes = [x.strip() for x in f if x.strip()]
-        for h in hashes:
-            queries.append(f"http.favicon.hash:{h}")
-        return queries
+            return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
 
-    base_queries = []
+    base = []
     if args.query:
-        base_queries.append(args.query)
+        base.append(args.query)
     if args.query_file:
         with open(args.query_file) as f:
-            base_queries.extend([x.strip() for x in f if x.strip()])
-    if not base_queries:
-        base_queries.append(DEFAULT_QUERY)
+            base.extend(x.strip() for x in f if x.strip())
+
+    if not base:
+        base.append(DEFAULT_QUERY)
 
     domains = []
     if args.hostname:
         domains.append(args.hostname)
     if args.file:
         with open(args.file) as f:
-            domains.extend([x.strip() for x in f if x.strip()])
+            domains.extend(x.strip() for x in f if x.strip())
 
     if domains:
-        for d in domains:
-            for q in base_queries:
-                queries.append(f"{q} hostname:{d}")
-    else:
-        queries = base_queries
+        return [f"{q} hostname:{d}" for d in domains for q in base]
 
-    return queries
+    return base
 
 def main():
     banner()
@@ -114,7 +100,7 @@ def main():
     parser.add_argument("-d", "--hostname")
     parser.add_argument("-f", "--file")
     parser.add_argument("-m", "--multi-hash")
-    parser.add_argument("-o", "--output", default="results.txt")
+    parser.add_argument("-o", "--output")   # <-- OPTIONAL
     parser.add_argument("-j", "--json", action="store_true")
     parser.add_argument("-c", "--concurrent", type=int, default=1)
     parser.add_argument("-r", "--retries", type=int, default=3)
@@ -128,32 +114,45 @@ def main():
 
     api = shodan.Shodan(API_KEY)
     queries = build_queries(args)
-    seen = set()
-    results = []
+
+    print(Fore.BLUE + "[*] Running queries:")
+    for q in queries:
+        print(Fore.BLUE + "    " + q)
+
+    seen, results = set(), []
 
     def worker(query):
-        found = []
+        out = []
         for item in shodan_search(api, query, args.retries):
             key = f"{item['ip_str']}:{item['port']}"
             if key not in seen:
                 seen.add(key)
-                found.append(item)
-        return found
+                out.append(item)
+        return out
 
     with ThreadPoolExecutor(max_workers=args.concurrent) as exe:
-        futures = [exe.submit(worker, q) for q in queries]
-        for f in as_completed(futures):
+        for f in as_completed(exe.submit(worker, q) for q in queries):
             results.extend(f.result())
 
-    with open(args.output, "w") as f:
-        for r in results:
-            if args.json:
-                json.dump(r, f)
-                f.write("\n")
-            else:
-                f.write(f"https://{r['ip_str']}:{r['port']}/\n")
+    if not results:
+        print(Fore.YELLOW + "\n[-] No results found.")
+        return
 
-    print(Fore.GREEN + f"\n[+] Saved {len(results)} results to {args.output}")
+    print()
+    for r in results:
+        line = f"{r['ip_str']}:{r['port']}"
+        print(Fore.CYAN + "[FOUND] " + line)
+
+    # ---- SAVE ONLY IF REQUESTED ----
+    if args.output:
+        with open(args.output, "w") as f:
+            for r in results:
+                if args.json:
+                    json.dump(r, f)
+                    f.write("\n")
+                else:
+                    f.write(f"{r['ip_str']}:{r['port']}\n")
+        print(Fore.GREEN + f"\n[+] Saved {len(results)} results to {args.output}")
 
 if __name__ == "__main__":
     main()
