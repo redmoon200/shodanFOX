@@ -11,7 +11,7 @@ from colorama import Fore, Style, init
 init(autoreset=True)
 
 # ================= CONFIG =================
-API_KEY = ""   # <-- PUT YOUR SHODAN API KEY HERE
+API_KEY = "PUT_YOUR_SHODAN_API_KEY_HERE"
 # ==========================================
 
 COLORS = [
@@ -38,15 +38,15 @@ USAGE:
   shodanhunter.py [OPTIONS]
 
 TARGET OPTIONS:
-  -q,  --query <query>          Single Shodan query (REQUIRED)
+  -q,  --query <query>          Single Shodan query
   -qf, --query-file <file>      File with Shodan queries
   -m,  --multi-hash <file>      File with favicon hashes
-  -d,  --hostname <domain>      Single domain (optional)
+  -d,  --hostname <domain>      Single domain
   -f,  --file <file>            File with domains
 
 OUTPUT:
-  -o,  --output <file>          Save results (optional)
-  -j,  --json                   JSON format
+  -o,  --output <file>          Save results
+  -j,  --json                   JSON output
 
 PERFORMANCE:
   -c,  --concurrent <num>       Threads (default: 1)
@@ -67,7 +67,6 @@ def shodan_search(api, query, retries):
 def build_queries(args):
     queries = []
 
-    # --- Multi-hash mode ---
     if args.multi_hash:
         with open(args.multi_hash) as f:
             return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
@@ -81,9 +80,8 @@ def build_queries(args):
         with open(args.query_file) as f:
             base_queries.extend(x.strip() for x in f if x.strip())
 
-    # ---- ENFORCE QUERY ----
     if not base_queries:
-        print(Fore.RED + "[!] No query provided. Use -q, -qf, or -m.")
+        print(Fore.RED + "[!] No query provided.")
         sys.exit(1)
 
     domains = []
@@ -127,7 +125,7 @@ def main():
     api = shodan.Shodan(API_KEY)
     queries = build_queries(args)
 
-    print(Fore.BLUE + "[*] Running queries:")
+    print(Fore.BLUE + "[*] Loaded Queries:")
     for q in queries:
         print(Fore.BLUE + "    " + q)
 
@@ -143,20 +141,29 @@ def main():
                 found.append(item)
         return found
 
-    with ThreadPoolExecutor(max_workers=args.concurrent) as exe:
-        futures = [exe.submit(worker, q) for q in queries]
-        for f in as_completed(futures):
-            results.extend(f.result())
+    # -------- SEQUENTIAL FUTURES EXECUTION --------
+    with ThreadPoolExecutor(max_workers=1) as exe:
+        future_map = {exe.submit(worker, q): q for q in queries}
+
+        for future in as_completed(future_map):
+            query = future_map[future]
+            found = future.result()
+
+            print(Fore.MAGENTA + f"\n[QUERY] {query}")
+
+            if not found:
+                print(Fore.YELLOW + "  [-] No results")
+                continue
+
+            for r in found:
+                print(Fore.CYAN + f"  [FOUND] {r['ip_str']}:{r['port']}")
+                results.append(r)
 
     if not results:
         print(Fore.YELLOW + "\n[-] No results found.")
         return
 
-    print()
-    for r in results:
-        print(Fore.CYAN + f"[FOUND] {r['ip_str']}:{r['port']}")
-
-    # ---- SAVE ONLY IF REQUESTED ----
+    # -------- SAVE OUTPUT --------
     if args.output:
         with open(args.output, "w") as f:
             for r in results:
@@ -165,6 +172,7 @@ def main():
                     f.write("\n")
                 else:
                     f.write(f"{r['ip_str']}:{r['port']}\n")
+
         print(Fore.GREEN + f"\n[+] Saved {len(results)} results to {args.output}")
 
 if __name__ == "__main__":
