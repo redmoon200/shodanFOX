@@ -56,8 +56,6 @@ Domain targeting (-d)
 
 Multiple domain input (-f)
 
-wildcard  (-w)
-
 Multi‑hash favicon hunting (-m)
 
 ⚡ Performance & Automation
