@@ -17,6 +17,18 @@ Handle Shodan API limitations gracefully
 
 Built with stability and extensibility in mind, shodanFOX is ideal for both quick recon and large‑scale asset discovery.
 
+**Installation**
+
+```bash
+git clone https://github.com/USERNAME/shodanFOX.git
+cd shodanFOX
+pip install -r requirements.txt
+
+Usage
+
+python shodanfox.py -q "apache"
+python shodanfox.py -m hashes.txt -d example.com
+
 ✨ Key Features
 🎨 Custom CLI Experience
 
