@@ -26,6 +26,10 @@ chmod +x shodanfox.py
 mv shodanfox.py shodanfox
 mv shodanfox /usr/local/bin/
 which shodanfox
+
+ADD API KEY
+nano  /usr/local/bin/shodanfox
+
 shodanfox -h
 
 Usage
