@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import time
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from colorama import Fore, Style, init
 
@@ -34,22 +35,22 @@ def banner():
 def print_help():
     print("""
 USAGE:
-  shodanfox [OPTIONS]
+  shodanhunter.py [OPTIONS]
 
 TARGET OPTIONS:
-  -q,  --query <query>
-  -qf, --query-file <file>
-  -d,  --hostname <domain>
-  -f,  --file <file>
-  -m,  --multi-hash <file>
+  -q,  --query <query>          Single Shodan query (REQUIRED)
+  -qf, --query-file <file>      File with Shodan queries
+  -m,  --multi-hash <file>      File with favicon hashes
+  -d,  --hostname <domain>      Single domain (optional)
+  -f,  --file <file>            File with domains
 
-OUTPUT OPTIONS:
-  -o,  --output <file>          Save results to file (optional)
-  -j,  --json                   JSON output (print / save)
+OUTPUT:
+  -o,  --output <file>          Save results (optional)
+  -j,  --json                   JSON format
 
 PERFORMANCE:
-  -c,  --concurrent <num>
-  -r,  --retries <num>
+  -c,  --concurrent <num>       Threads (default: 1)
+  -r,  --retries <num>          Retry API errors (default: 3)
 
 OTHER:
   -h,  --help
@@ -64,31 +65,43 @@ def shodan_search(api, query, retries):
     return []
 
 def build_queries(args):
+    queries = []
+
+    # --- Multi-hash mode ---
     if args.multi_hash:
         with open(args.multi_hash) as f:
             return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
 
-    base = []
+    base_queries = []
+
     if args.query:
-        base.append(args.query)
+        base_queries.append(args.query)
+
     if args.query_file:
         with open(args.query_file) as f:
-            base.extend(x.strip() for x in f if x.strip())
+            base_queries.extend(x.strip() for x in f if x.strip())
 
-    if not base:
-        base.append(DEFAULT_QUERY)
+    # ---- ENFORCE QUERY ----
+    if not base_queries:
+        print(Fore.RED + "[!] No query provided. Use -q, -qf, or -m.")
+        sys.exit(1)
 
     domains = []
     if args.hostname:
         domains.append(args.hostname)
+
     if args.file:
         with open(args.file) as f:
             domains.extend(x.strip() for x in f if x.strip())
 
     if domains:
-        return [f"{q} hostname:{d}" for d in domains for q in base]
+        for d in domains:
+            for q in base_queries:
+                queries.append(f"{q} hostname:{d}")
+    else:
+        queries = base_queries
 
-    return base
+    return queries
 
 def main():
     banner()
@@ -96,10 +109,10 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-q", "--query")
     parser.add_argument("-qf", "--query-file")
+    parser.add_argument("-m", "--multi-hash")
     parser.add_argument("-d", "--hostname")
     parser.add_argument("-f", "--file")
-    parser.add_argument("-m", "--multi-hash")
-    parser.add_argument("-o", "--output")   # <-- OPTIONAL
+    parser.add_argument("-o", "--output")
     parser.add_argument("-j", "--json", action="store_true")
     parser.add_argument("-c", "--concurrent", type=int, default=1)
     parser.add_argument("-r", "--retries", type=int, default=3)
@@ -118,19 +131,21 @@ def main():
     for q in queries:
         print(Fore.BLUE + "    " + q)
 
-    seen, results = set(), []
+    seen = set()
+    results = []
 
     def worker(query):
-        out = []
+        found = []
         for item in shodan_search(api, query, args.retries):
             key = f"{item['ip_str']}:{item['port']}"
             if key not in seen:
                 seen.add(key)
-                out.append(item)
-        return out
+                found.append(item)
+        return found
 
     with ThreadPoolExecutor(max_workers=args.concurrent) as exe:
-        for f in as_completed(exe.submit(worker, q) for q in queries):
+        futures = [exe.submit(worker, q) for q in queries]
+        for f in as_completed(futures):
             results.extend(f.result())
 
     if not results:
@@ -139,8 +154,7 @@ def main():
 
     print()
     for r in results:
-        line = f"{r['ip_str']}:{r['port']}"
-        print(Fore.CYAN + "[FOUND] " + line)
+        print(Fore.CYAN + f"[FOUND] {r['ip_str']}:{r['port']}")
 
     # ---- SAVE ONLY IF REQUESTED ----
     if args.output:
@@ -155,4 +169,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
