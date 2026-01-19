@@ -40,15 +40,11 @@ def shodan_search(api, query, retries):
             time.sleep(2 ** attempt)
     return []
 
-def wildcard_hostname(domain, wildcard):
-    if wildcard:
-        return f"(hostname:{domain} OR hostname:*.{domain})"
-    return f"hostname:{domain}"
-
+# ---------- QUERY BUILDER (NO WILDCARD) ----------
 def build_queries(args):
     queries = []
 
-    # ---- Multi favicon hash ----
+    # favicon hash mode
     if args.multi_hash:
         with open(args.multi_hash) as f:
             return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
@@ -63,7 +59,7 @@ def build_queries(args):
             base_queries.extend(x.strip() for x in f if x.strip())
 
     if not base_queries:
-        print(Fore.RED + "[!] No query provided.")
+        print(Fore.RED + "[!] No query provided")
         sys.exit(1)
 
     domains = []
@@ -75,12 +71,11 @@ def build_queries(args):
         with open(args.file) as f:
             domains.extend(x.strip() for x in f if x.strip())
 
-    # ---- BUILD FINAL QUERIES ----
+    # ---- SAFE QUERY BUILD ----
     if domains:
         for d in domains:
-            host_filter = wildcard_hostname(d, args.wildcard)
             for q in base_queries:
-                queries.append(f"{q} {host_filter}")
+                queries.append(f"({q}) AND hostname:{d}")
     else:
         queries = base_queries
 
@@ -95,8 +90,6 @@ def main():
     parser.add_argument("-m", "--multi-hash")
     parser.add_argument("-d", "--hostname")
     parser.add_argument("-f", "--file")
-    parser.add_argument("-w", "--wildcard", action="store_true",
-                        help="Enable wildcard subdomain search (*.example.com)")
     parser.add_argument("-o", "--output")
     parser.add_argument("-j", "--json", action="store_true")
     parser.add_argument("-c", "--concurrent", type=int, default=1)
@@ -128,7 +121,7 @@ def main():
                 found.append(item)
         return found
 
-    # ---- SEQUENTIAL FUTURES MODE ----
+    # ---- SEQUENTIAL FUTURES EXECUTION ----
     with ThreadPoolExecutor(max_workers=1) as exe:
         future_map = {exe.submit(worker, q): q for q in queries}
 
