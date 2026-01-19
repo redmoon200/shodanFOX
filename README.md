@@ -19,8 +19,8 @@ Built with stability and extensibility in mind, shodanFOX is ideal for both quic
 
 **Installation**
 
-```bash
-git clone https://github.com/USERNAME/shodanFOX.git
+```bash[
+git clone https://github.com/redmoon200/shodanFOX.git
 cd shodanFOX
 ./shodanfox.py 
 
