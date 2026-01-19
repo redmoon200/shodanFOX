@@ -22,7 +22,7 @@ Built with stability and extensibility in mind, shodanFOX is ideal for both quic
 ```bash
 git clone https://github.com/USERNAME/shodanFOX.git
 cd shodanFOX
-pip install -r requirements.txt
+./shodanfox.py 
 
 Usage
 
