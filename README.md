@@ -22,6 +22,7 @@ Built with stability and extensibility in mind, shodanFOX is ideal for both quic
 ```bash[
 git clone https://github.com/redmoon200/shodanFOX.git
 cd shodanFOX
+chmod +x shodanfox.py 
 ./shodanfox.py 
 
 Usage
