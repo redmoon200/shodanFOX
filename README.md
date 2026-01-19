@@ -17,3 +17,8 @@ shodanFOX – Recon Automation Toolkit
 git clone https://github.com/USERNAME/shodanFOX.git
 cd shodanFOX
 pip install -r requirements.txt
+
+
+
+python shodanfox.py -q "apache"
+python shodanfox.py -m hashes.txt -d example.com
