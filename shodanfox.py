@@ -11,7 +11,6 @@ init(autoreset=True)
 
 # ================= CONFIG =================
 API_KEY = ""   # <-- PUT YOUR SHODAN API KEY HERE
-DEFAULT_QUERY = "http.favicon.hash:116323821"
 # ==========================================
 
 COLORS = [
@@ -156,3 +155,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
