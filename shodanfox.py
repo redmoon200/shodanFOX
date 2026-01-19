@@ -32,30 +32,6 @@ def banner():
         shodanFOX – Recon Automation Toolkit
 """ + Style.RESET_ALL)
 
-def print_help():
-    print("""
-USAGE:
-  shodanhunter.py [OPTIONS]
-
-TARGET OPTIONS:
-  -q,  --query <query>          Single Shodan query
-  -qf, --query-file <file>      File with Shodan queries
-  -m,  --multi-hash <file>      File with favicon hashes
-  -d,  --hostname <domain>      Single domain
-  -f,  --file <file>            File with domains
-
-OUTPUT:
-  -o,  --output <file>          Save results
-  -j,  --json                   JSON output
-
-PERFORMANCE:
-  -c,  --concurrent <num>       Threads (default: 1)
-  -r,  --retries <num>          Retry API errors (default: 3)
-
-OTHER:
-  -h,  --help
-""")
-
 def shodan_search(api, query, retries):
     for attempt in range(retries):
         try:
@@ -64,9 +40,15 @@ def shodan_search(api, query, retries):
             time.sleep(2 ** attempt)
     return []
 
+def wildcard_hostname(domain, wildcard):
+    if wildcard:
+        return f"(hostname:{domain} OR hostname:*.{domain})"
+    return f"hostname:{domain}"
+
 def build_queries(args):
     queries = []
 
+    # ---- Multi favicon hash ----
     if args.multi_hash:
         with open(args.multi_hash) as f:
             return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
@@ -85,6 +67,7 @@ def build_queries(args):
         sys.exit(1)
 
     domains = []
+
     if args.hostname:
         domains.append(args.hostname)
 
@@ -92,10 +75,12 @@ def build_queries(args):
         with open(args.file) as f:
             domains.extend(x.strip() for x in f if x.strip())
 
+    # ---- BUILD FINAL QUERIES ----
     if domains:
         for d in domains:
+            host_filter = wildcard_hostname(d, args.wildcard)
             for q in base_queries:
-                queries.append(f"{q} hostname:{d}")
+                queries.append(f"{q} {host_filter}")
     else:
         queries = base_queries
 
@@ -110,6 +95,8 @@ def main():
     parser.add_argument("-m", "--multi-hash")
     parser.add_argument("-d", "--hostname")
     parser.add_argument("-f", "--file")
+    parser.add_argument("-w", "--wildcard", action="store_true",
+                        help="Enable wildcard subdomain search (*.example.com)")
     parser.add_argument("-o", "--output")
     parser.add_argument("-j", "--json", action="store_true")
     parser.add_argument("-c", "--concurrent", type=int, default=1)
@@ -119,13 +106,13 @@ def main():
     args = parser.parse_args()
 
     if args.help:
-        print_help()
+        parser.print_help()
         return
 
     api = shodan.Shodan(API_KEY)
     queries = build_queries(args)
 
-    print(Fore.BLUE + "[*] Loaded Queries:")
+    print(Fore.BLUE + "[*] Running Queries:")
     for q in queries:
         print(Fore.BLUE + "    " + q)
 
@@ -141,7 +128,7 @@ def main():
                 found.append(item)
         return found
 
-    # -------- SEQUENTIAL FUTURES EXECUTION --------
+    # ---- SEQUENTIAL FUTURES MODE ----
     with ThreadPoolExecutor(max_workers=1) as exe:
         future_map = {exe.submit(worker, q): q for q in queries}
 
@@ -159,12 +146,7 @@ def main():
                 print(Fore.CYAN + f"  [FOUND] {r['ip_str']}:{r['port']}")
                 results.append(r)
 
-    if not results:
-        print(Fore.YELLOW + "\n[-] No results found.")
-        return
-
-    # -------- SAVE OUTPUT --------
-    if args.output:
+    if args.output and results:
         with open(args.output, "w") as f:
             for r in results:
                 if args.json:
