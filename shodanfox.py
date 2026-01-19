@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import shodan
 import argparse
-import json
 import random
 import time
 import sys
@@ -32,29 +31,7 @@ def banner():
         shodanFOX – Recon Automation Toolkit
 """ + Style.RESET_ALL)
 
-def print_help():
-    print("""
-USAGE:
-  shodanhunter.py [OPTIONS]
-
-TARGET OPTIONS:
-  -q,  --query <query>          Single Shodan query
-  -qf, --query-file <file>      File with Shodan queries
-  -m,  --multi-hash <file>      File with favicon hashes
-  -d,  --hostname <domain>      Single domain
-  -f,  --file <file>            File with domains
-
-OUTPUT:
-  -o,  --output <file>          Save results
-  -j,  --json                   JSON output
-
-PERFORMANCE:
-  -c,  --concurrent <num>       Threads (default: 1)
-  -r,  --retries <num>          Retry API errors (default: 3)
-
-OTHER:
-  -h,  --help
-""")
+# ---------------- SHODAN ----------------
 
 def shodan_search(api, query, retries):
     for attempt in range(retries):
@@ -64,13 +41,46 @@ def shodan_search(api, query, retries):
             time.sleep(2 ** attempt)
     return []
 
+# ---------------- DOMAIN EXTRACTION ----------------
+
+def extract_domains(item):
+    domains = set()
+
+    domains.update(item.get("hostnames", []))
+    domains.update(item.get("domains", []))
+
+    ssl = item.get("ssl", {})
+    cert = ssl.get("cert", {})
+
+    subject = cert.get("subject")
+    if isinstance(subject, dict):
+        cn = subject.get("CN")
+        if cn:
+            domains.add(cn)
+
+    extensions = cert.get("extensions")
+
+    if isinstance(extensions, dict):
+        san = extensions.get("subjectAltName")
+        if isinstance(san, dict):
+            domains.update(san.get("dns_names", []))
+        elif isinstance(san, list):
+            for x in san:
+                if isinstance(x, str) and x.startswith("DNS:"):
+                    domains.add(x.replace("DNS:", "").strip())
+
+    elif isinstance(extensions, list):
+        for ext in extensions:
+            if isinstance(ext, dict) and ext.get("name") == "subjectAltName":
+                for v in ext.get("value", []):
+                    if isinstance(v, str) and v.startswith("DNS:"):
+                        domains.add(v.replace("DNS:", "").strip())
+
+    return domains
+
+# ---------------- QUERY BUILDER ----------------
+
 def build_queries(args):
-    queries = []
-
-    if args.multi_hash:
-        with open(args.multi_hash) as f:
-            return [f"http.favicon.hash:{x.strip()}" for x in f if x.strip()]
-
     base_queries = []
 
     if args.query:
@@ -81,10 +91,11 @@ def build_queries(args):
             base_queries.extend(x.strip() for x in f if x.strip())
 
     if not base_queries:
-        print(Fore.RED + "[!] No query provided.")
+        print(Fore.RED + "[!] No query provided")
         sys.exit(1)
 
     domains = []
+
     if args.hostname:
         domains.append(args.hostname)
 
@@ -92,14 +103,20 @@ def build_queries(args):
         with open(args.file) as f:
             domains.extend(x.strip() for x in f if x.strip())
 
-    if domains:
-        for d in domains:
-            for q in base_queries:
-                queries.append(f"{q} hostname:{d}")
-    else:
-        queries = base_queries
+    queries = []
 
-    return queries
+    if domains:
+        for q in base_queries:
+            for d in domains:
+                if args.wildcard:
+                    queries.append(f"{q} hostname:*.{d}")
+                else:
+                    queries.append(f"{q} hostname:{d}")
+        return queries
+
+    return base_queries
+
+# ---------------- MAIN ----------------
 
 def main():
     banner()
@@ -107,19 +124,18 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-q", "--query")
     parser.add_argument("-qf", "--query-file")
-    parser.add_argument("-m", "--multi-hash")
     parser.add_argument("-d", "--hostname")
     parser.add_argument("-f", "--file")
     parser.add_argument("-o", "--output")
-    parser.add_argument("-j", "--json", action="store_true")
-    parser.add_argument("-c", "--concurrent", type=int, default=1)
+    parser.add_argument("-w", "--wildcard", action="store_true",
+                        help="Use hostname wildcard search (hostname:*.domain)")
     parser.add_argument("-r", "--retries", type=int, default=3)
     parser.add_argument("-h", "--help", action="store_true")
 
     args = parser.parse_args()
 
     if args.help:
-        print_help()
+        print("Usage: shodanfox -q|-qf [-d|-f] [-w] [-o file]")
         return
 
     api = shodan.Shodan(API_KEY)
@@ -129,51 +145,38 @@ def main():
     for q in queries:
         print(Fore.BLUE + "    " + q)
 
-    seen = set()
-    results = []
+    seen_hosts = set()
+    seen_ip_port = set()
 
-    def worker(query):
-        found = []
-        for item in shodan_search(api, query, args.retries):
-            key = f"{item['ip_str']}:{item['port']}"
-            if key not in seen:
-                seen.add(key)
-                found.append(item)
-        return found
-
-    # -------- SEQUENTIAL FUTURES EXECUTION --------
     with ThreadPoolExecutor(max_workers=1) as exe:
-        future_map = {exe.submit(worker, q): q for q in queries}
+        future_map = {
+            exe.submit(shodan_search, api, q, args.retries): q
+            for q in queries
+        }
 
         for future in as_completed(future_map):
             query = future_map[future]
-            found = future.result()
-
             print(Fore.MAGENTA + f"\n[QUERY] {query}")
 
-            if not found:
-                print(Fore.YELLOW + "  [-] No results")
-                continue
+            for item in future.result():
+                ip_port = f"{item['ip_str']}:{item['port']}"
+                if ip_port in seen_ip_port:
+                    continue
+                seen_ip_port.add(ip_port)
 
-            for r in found:
-                print(Fore.CYAN + f"  [FOUND] {r['ip_str']}:{r['port']}")
-                results.append(r)
+                domains = extract_domains(item)
 
-    if not results:
-        print(Fore.YELLOW + "\n[-] No results found.")
-        return
+                for d in domains:
+                    if d not in seen_hosts:
+                        seen_hosts.add(d)
+                        print(Fore.GREEN + f"  [FOUND] https://{d}:{item['port']}")
 
-    # -------- SAVE OUTPUT --------
     if args.output:
         with open(args.output, "w") as f:
-            for r in results:
-                if args.json:
-                    json.dump(r, f)
-                    f.write("\n")
-                else:
-                    f.write(f"{r['ip_str']}:{r['port']}\n")
+            for h in sorted(seen_hosts):
+                f.write(f"https://{h}:443\n")
 
-        print(Fore.GREEN + f"\n[+] Saved {len(results)} results to {args.output}")
+        print(Fore.GREEN + f"\n[+] Saved {len(seen_hosts)} URLs to {args.output}")
 
 if __name__ == "__main__":
     main()
