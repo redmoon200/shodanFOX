@@ -28,8 +28,8 @@ file /home/username/Downloads/shodanFOX/shodanfox.py
 
 Usage
 
-python shodanfox.py -q "apache"
-python shodanfox.py -m hashes.txt -d example.com
+./shodanfox.py -q "apache"
+./shodanfox.py -m hashes.txt -d example.com
 
 ✨ Key Features
 🎨 Custom CLI Experience
