@@ -23,12 +23,15 @@ Built with stability and extensibility in mind, shodanFOX is ideal for both quic
 git clone https://github.com/redmoon200/shodanFOX.git
 cd shodanFOX
 chmod +x shodanfox.py
-./shodanfox.py 
+mv shodanfox.py shodanfox
+mv shodanfox /usr/local/bin/
+which shodanfox
+shodanfox -h
 
 Usage
 
-./shodanfox.py -q "apache"
-./shodanfox.py -m hashes.txt -d example.com
+shodanfox -q "apache"
+shodanfox -m hashes.txt -d example.com
 
 ✨ Key Features
 🎨 Custom CLI Experience
@@ -91,19 +94,19 @@ Skips failed queries safely and continues execution
 
 🛠 Example Usage
 # Basic search
-python shodanfox.py -q "apache"
+shodanfox -q "apache"
 
 # Domain‑specific recon
-python shodanfox.py -q "nginx" -d example.com
+shodanfox -q "nginx" -d example.com
 
 # Multi‑hash favicon hunting
-python shodanfox.py -m hashes.txt
+shodanfox -m hashes.txt
 
 # Query file + domain file
-python shodanfox.py -qf queries.txt -f domains.txt
+shodanfox -qf queries.txt -f domains.txt
 
 # JSON output with concurrency
-python shodanfox.py -q "ssh" -j -c 3
+shodanfox -q "ssh" -j -c 3
 
 📋 Requirements
 
@@ -121,7 +124,6 @@ requests
 
 Install dependencies:
 
-pip install -r requirements.txt
 
 🔑 Shodan API Key Setup
 export SHODAN_API_KEY="YOUR_API_KEY"
