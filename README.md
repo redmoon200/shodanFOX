@@ -28,7 +28,7 @@ mv shodanfox /usr/local/bin/
 which shodanfox
 
 ADD API KEY
-nano  /usr/local/bin/shodanfox
+export SHODAN_API_KEY="YOUR_API_KEY"
 
 shodanfox -h
 
