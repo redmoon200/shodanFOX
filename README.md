@@ -32,6 +32,11 @@ nano  /usr/local/bin/shodanfox
 
 shodanfox -h
 
+"run is comment for any error facing in run the shodanfox -h "
+chmod +x /usr/local/bin/shodanfox
+dos2unix /usr/local/bin/shodanfox
+
+
 Usage
 
 shodanfox -q "apache"
