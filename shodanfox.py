@@ -39,12 +39,24 @@ def banner():
 
 # ---------------- SHODAN ----------------
 
-def shodan_search(api, query, retries):
+def shodan_search(api, query, retries, delay, output_file):
     for attempt in range(retries):
         try:
-            return api.search_cursor(query)
+            # Make the Shodan API call
+            results = api.search_cursor(query)
+            for item in results:
+                ip_port = f"{item.get('ip_str')}:{item.get('port')}"
+                for d in extract_domains(item):
+                    # If the domain is found, save it to the file in real-time
+                    with open(output_file, "a") as f:
+                        f.write(f"https://{d}:{item['port']}\n")
+                    print(Fore.GREEN + f"  [FOUND] https://{d}:{item['port']}")
+            time.sleep(delay)  # Throttle requests based on user-defined delay
+            return results
         except shodan.APIError as e:
-            time.sleep(2 ** attempt)
+            # If rate-limited, back off exponentially
+            print(Fore.YELLOW + f"[!] Rate limit exceeded. Retrying in {2 ** attempt} seconds.")
+            time.sleep(2 ** attempt)  # Exponential backoff on API error
     return []
 
 # ---------------- DOMAIN EXTRACTION ----------------
@@ -139,8 +151,13 @@ def main():
                         help="Use wildcard hostname search")
     parser.add_argument("-o", "--output", help="Save output to file")
     parser.add_argument("-r", "--retries", type=int, default=3)
+    parser.add_argument("--time", type=int, default=1, help="Time in seconds between requests")
 
     args = parser.parse_args()
+
+    if not args.output:
+        print(Fore.RED + "[!] Output file must be specified using -o <filename>")
+        sys.exit(1)
 
     api = shodan.Shodan(API_KEY)
     queries = build_queries(args)
@@ -150,31 +167,18 @@ def main():
         print("   ", q)
 
     seen_hosts = set()
-    seen_ip_port = set()
 
+    # Open the output file for writing results in real-time
     with ThreadPoolExecutor(max_workers=1) as exe:
-        futures = {exe.submit(shodan_search, api, q, args.retries): q for q in queries}
+        futures = {exe.submit(shodan_search, api, q, args.retries, args.time, args.output): q for q in queries}
 
         for future in as_completed(futures):
             query = futures[future]
             print(Fore.MAGENTA + f"\n[QUERY] {query}")
 
-            for item in future.result():
-                ip_port = f"{item.get('ip_str')}:{item.get('port')}"
-                if ip_port in seen_ip_port:
-                    continue
-                seen_ip_port.add(ip_port)
+            future.result()  # Just let the result be processed in real-time
 
-                for d in extract_domains(item):
-                    if d not in seen_hosts:
-                        seen_hosts.add(d)
-                        print(Fore.GREEN + f"  [FOUND] https://{d}:{item['port']}")
-
-    if args.output:
-        with open(args.output, "w") as f:
-            for h in sorted(seen_hosts):
-                f.write(f"https://{h}:443\n")
-        print(Fore.GREEN + f"\n[+] Saved {len(seen_hosts)} URLs to {args.output}")
+    print(Fore.GREEN + f"\n[+] Results saved in {args.output}")
 
 if __name__ == "__main__":
     main()
