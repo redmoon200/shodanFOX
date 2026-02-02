@@ -37,27 +37,44 @@ def banner():
         shodanFOX – Recon Automation Toolkit
 """ + Style.RESET_ALL)
 
+# ---------------- COUNTRY NORMALIZER ----------------
+
+def normalize_country(country):
+    country_map = {
+        "india": "IN",
+        "us": "US",
+        "usa": "US",
+        "united states": "US",
+        "uk": "GB",
+        "united kingdom": "GB",
+        "germany": "DE",
+        "france": "FR",
+        "china": "CN",
+        "japan": "JP",
+        "russia": "RU",
+        "canada": "CA",
+        "australia": "AU"
+    }
+    c = country.strip().lower()
+    return country_map.get(c, c.upper())
+
 # ---------------- SHODAN ----------------
 
 def shodan_search(api, query, retries, delay, output_file):
     for attempt in range(retries):
         try:
-            # Make the Shodan API call
             results = api.search_cursor(query)
             for item in results:
-                ip_port = f"{item.get('ip_str')}:{item.get('port')}"
                 for d in extract_domains(item):
-                    # If the domain is found, save it to the file in real-time
+                    url = f"https://{d}:{item.get('port')}"
                     with open(output_file, "a") as f:
-                        f.write(f"https://{d}:{item['port']}\n")
-                    print(Fore.GREEN + f"  [FOUND] https://{d}:{item['port']}")
-            time.sleep(delay)  # Throttle requests based on user-defined delay
-            return results
+                        f.write(url + "\n")
+                    print(Fore.GREEN + f"  [FOUND] {url}")
+            time.sleep(delay)
+            return
         except shodan.APIError as e:
-            # If rate-limited, back off exponentially
-            print(Fore.YELLOW + f"[!] Rate limit exceeded. Retrying in {2 ** attempt} seconds.")
-            time.sleep(2 ** attempt)  # Exponential backoff on API error
-    return []
+            print(Fore.YELLOW + f"[!] API Error: {e} | Retrying...")
+            time.sleep(2 ** attempt)
 
 # ---------------- DOMAIN EXTRACTION ----------------
 
@@ -69,8 +86,8 @@ def extract_domains(item):
 
     ssl = item.get("ssl", {})
     cert = ssl.get("cert", {})
-
     subject = cert.get("subject", {})
+
     if isinstance(subject, dict):
         cn = subject.get("CN")
         if cn:
@@ -121,18 +138,27 @@ def build_queries(args):
         with open(args.domain_file) as f:
             domains.extend(x.strip() for x in f if x.strip())
 
+    filters = ""
+
+    if args.country:
+        cc = normalize_country(args.country)
+        filters += f" country:{cc}"
+
+    if args.org:
+        filters += f' org:"{args.org}"'
+
     queries = []
 
     if domains:
         for q in base_queries:
             for d in domains:
                 if args.wildcard:
-                    queries.append(f"{q} hostname:*.{d}")
+                    queries.append(f"{q} hostname:*.{d}{filters}")
                 else:
-                    queries.append(f"{q} hostname:{d}")
+                    queries.append(f"{q} hostname:{d}{filters}")
         return queries
 
-    return base_queries
+    return [f"{q}{filters}" for q in base_queries]
 
 # ---------------- MAIN ----------------
 
@@ -147,17 +173,14 @@ def main():
     parser.add_argument("-qf", "--query-file", help="File with Shodan queries")
     parser.add_argument("-d", "--hostname", help="Single domain")
     parser.add_argument("-df", "--domain-file", help="File with domains")
-    parser.add_argument("-w", "--wildcard", action="store_true",
-                        help="Use wildcard hostname search")
-    parser.add_argument("-o", "--output", help="Save output to file")
+    parser.add_argument("-w", "--wildcard", action="store_true", help="Use wildcard hostname")
+    parser.add_argument("--country", help="Filter by country (india, us, etc)")
+    parser.add_argument("--org", help='Filter by organization (e.g. "Google")')
+    parser.add_argument("-o", "--output", required=True, help="Output file")
     parser.add_argument("-r", "--retries", type=int, default=3)
-    parser.add_argument("--time", type=int, default=1, help="Time in seconds between requests")
+    parser.add_argument("--time", type=int, default=1, help="Delay between requests")
 
     args = parser.parse_args()
-
-    if not args.output:
-        print(Fore.RED + "[!] Output file must be specified using -o <filename>")
-        sys.exit(1)
 
     api = shodan.Shodan(API_KEY)
     queries = build_queries(args)
@@ -166,17 +189,12 @@ def main():
     for q in queries:
         print("   ", q)
 
-    seen_hosts = set()
-
-    # Open the output file for writing results in real-time
     with ThreadPoolExecutor(max_workers=1) as exe:
         futures = {exe.submit(shodan_search, api, q, args.retries, args.time, args.output): q for q in queries}
 
         for future in as_completed(futures):
-            query = futures[future]
-            print(Fore.MAGENTA + f"\n[QUERY] {query}")
-
-            future.result()  # Just let the result be processed in real-time
+            print(Fore.MAGENTA + f"\n[QUERY] {futures[future]}")
+            future.result()
 
     print(Fore.GREEN + f"\n[+] Results saved in {args.output}")
 
